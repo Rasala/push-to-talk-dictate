@@ -71,15 +71,9 @@ class LLMConfig:
     enabled: bool = True
     model: str = "Qwen/Qwen2-1.5B-Instruct-MLX"
     system_prompt: str = (
-        "You are a prompt formatter for AI coding assistants. Your job is to clean up "
-        "voice-transcribed text into a clear, well-structured prompt. "
-        "RULES: "
-        "1) Fix punctuation and capitalize properly. "
-        "2) PRESERVE all technical terms exactly: SQL, API, JSON, REST, GraphQL, Python, JavaScript, etc. "
-        "3) PRESERVE code snippets, file paths, variable names, and CLI commands exactly. "
-        "4) Keep the original meaning and intent - do NOT add or remove information. "
-        "5) Do NOT answer the prompt or respond to it - just format it. "
-        "6) Output ONLY the formatted prompt text, nothing else."
+        "You are a text corrector. Return ONLY the corrected text. "
+        "NO preamble. NO 'Sure', 'Here is', or any introduction. "
+        "Just the text with fixed punctuation and capitalization."
     )
     max_tokens: int = 300
     temperature: float = 0.0

@@ -115,7 +115,7 @@ class TextCleaner:
         # Build chat-formatted prompt for AI prompt formatting
         messages = [
             {"role": "system", "content": self._config.system_prompt},
-            {"role": "user", "content": f"Format this voice transcription into a clear prompt:\n\n{text}"},
+            {"role": "user", "content": text},
         ]
         prompt = self._tokenizer.apply_chat_template(
             messages,
@@ -141,7 +141,71 @@ class TextCleaner:
         return self._postprocess(result.strip())
 
     def _postprocess(self, text: str) -> str:
-        """Post-process generated text to handle repetition."""
+        """Post-process generated text to handle LLM quirks."""
+        # Strip common LLM preambles (case-insensitive)
+        preambles = [
+            # "Sure" variants
+            "Sure, here's the corrected text:",
+            "Sure, here is the corrected text:",
+            "Sure, here's the text:",
+            "Sure, here is the text:",
+            "Sure, here you go:",
+            "Sure!",
+            "Sure:",
+            "Sure,",
+            # "Here" variants
+            "Here's the corrected text:",
+            "Here is the corrected text:",
+            "Here's the formatted text:",
+            "Here is the formatted text:",
+            "Here's the text:",
+            "Here is the text:",
+            "Here you go:",
+            "Here it is:",
+            # "Corrected/Fixed" variants
+            "Corrected text:",
+            "Corrected:",
+            "Fixed text:",
+            "Fixed:",
+            "Formatted text:",
+            "Formatted:",
+            # "The" variants
+            "The corrected text is:",
+            "The corrected text:",
+            "The text:",
+            # "I" variants
+            "I've corrected the text:",
+            "I have corrected the text:",
+            "I fixed the text:",
+            # "Of course" variants
+            "Of course!",
+            "Of course:",
+            "Of course,",
+            # "Certainly" variants
+            "Certainly!",
+            "Certainly:",
+            "Certainly,",
+            # Other
+            "Output:",
+            "Result:",
+            "Answer:",
+        ]
+        
+        text_lower = text.lower()
+        for preamble in preambles:
+            if text_lower.startswith(preamble.lower()):
+                text = text[len(preamble):].strip()
+                text_lower = text.lower()  # Update for next iteration
+        
+        # Strip surrounding quotes if present
+        if len(text) >= 2 and text.startswith('"') and text.endswith('"'):
+            text = text[1:-1]
+        if len(text) >= 2 and text.startswith("'") and text.endswith("'"):
+            text = text[1:-1]
+        
+        # Remove leading newlines
+        text = text.lstrip('\n')
+        
         lines = text.split("\n")
         if not lines:
             return text
