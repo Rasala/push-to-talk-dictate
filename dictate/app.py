@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import queue
 import signal
 import threading
@@ -25,6 +26,32 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 
 logger = logging.getLogger(__name__)
+
+
+def get_memory_usage() -> tuple[float, float]:
+    """
+    Get current memory usage of this process.
+    
+    Returns:
+        Tuple of (RSS in GB, percent of total RAM).
+    """
+    try:
+        import psutil
+        process = psutil.Process(os.getpid())
+        mem_info = process.memory_info()
+        rss_gb = mem_info.rss / (1024 ** 3)
+        percent = process.memory_percent()
+        return rss_gb, percent
+    except ImportError:
+        # Fallback for macOS without psutil
+        try:
+            import resource
+            rss_bytes = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            # On macOS, ru_maxrss is in bytes
+            rss_gb = rss_bytes / (1024 ** 3)
+            return rss_gb, 0.0
+        except Exception:
+            return 0.0, 0.0
 
 
 class DictationApp:
@@ -64,6 +91,9 @@ class DictationApp:
         self._pipeline.set_sample_rate(self._config.audio.sample_rate)
         self._pipeline.preload_models()
         
+        # Show memory usage after loading models
+        self._print_memory_usage()
+        
         # Initialize audio capture
         self._audio = AudioCapture(
             audio_config=self._config.audio,
@@ -82,6 +112,14 @@ class DictationApp:
         print("=" * 60)
         print("🎙️ DICTATE - Push-to-Talk Voice Dictation")
         print("=" * 60)
+
+    def _print_memory_usage(self) -> None:
+        """Print current memory usage."""
+        rss_gb, percent = get_memory_usage()
+        if percent > 0:
+            print(f"\n💾 Memory usage: {rss_gb:.2f} GB ({percent:.1f}% of RAM)")
+        elif rss_gb > 0:
+            print(f"\n💾 Memory usage: {rss_gb:.2f} GB")
 
     def _print_devices(self) -> None:
         """Print available audio devices."""
@@ -152,6 +190,7 @@ class DictationApp:
 
     def _worker_loop(self) -> None:
         """Background worker for processing audio chunks."""
+        first_run = True
         while not self._stop_event.is_set():
             try:
                 audio = self._work_queue.get(timeout=0.5)
@@ -165,6 +204,11 @@ class DictationApp:
                 continue
                 
             self._process_chunk(audio)
+            
+            # Show memory after first transcription (when Whisper is loaded)
+            if first_run:
+                first_run = False
+                self._print_memory_usage()
 
     def _process_chunk(self, audio: "NDArray[np.int16]") -> None:
         """Process a single audio chunk."""
