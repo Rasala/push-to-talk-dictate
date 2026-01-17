@@ -31,7 +31,6 @@ class ClipboardOutput(OutputHandler):
     def output(self, text: str) -> None:
         """Copy text to clipboard."""
         pyperclip.copy(text)
-        logger.info("Text copied to clipboard")
 
 
 class TyperOutput(OutputHandler):
@@ -46,7 +45,6 @@ class TyperOutput(OutputHandler):
             # Small delay to ensure the window is ready
             time.sleep(0.05)
             self._controller.type(text)
-            logger.info("Text typed into focused window")
         except Exception as e:
             logger.error("Failed to type text: %s", e)
             raise

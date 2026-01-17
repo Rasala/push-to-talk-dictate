@@ -83,7 +83,8 @@ class DictationApp:
         self._print_banner()
         self._print_devices()
         
-        # Initialize transcription pipeline
+        # Initialize transcription pipeline (shows loading progress)
+        print("\n📦 MODELS:")
         self._pipeline = TranscriptionPipeline(
             whisper_config=self._config.whisper,
             llm_config=self._config.llm,
@@ -109,44 +110,43 @@ class DictationApp:
 
     def _print_banner(self) -> None:
         """Print application banner."""
-        print("=" * 60)
-        print("🎙️ DICTATE - Push-to-Talk Voice Dictation")
+        print("\n" + "=" * 60)
+        print("🎙️  DICTATE - Push-to-Talk Voice Dictation")
         print("=" * 60)
 
     def _print_memory_usage(self) -> None:
         """Print current memory usage."""
         rss_gb, percent = get_memory_usage()
         if percent > 0:
-            print(f"\n💾 Memory usage: {rss_gb:.2f} GB ({percent:.1f}% of RAM)")
+            print(f"💾 RAM: {rss_gb:.2f} GB ({percent:.1f}%)")
         elif rss_gb > 0:
-            print(f"\n💾 Memory usage: {rss_gb:.2f} GB")
+            print(f"💾 RAM: {rss_gb:.2f} GB")
 
     def _print_devices(self) -> None:
         """Print available audio devices."""
-        print("\n🎤 Available audio input devices:")
-        print("-" * 50)
+        print("\n📋 AUDIO DEVICES:")
         for device in list_input_devices():
-            print(f"  {device}")
-        print("-" * 50)
+            print(f"   {device}")
         
         device_name = get_device_name(self._config.audio.device_id)
         if self._config.audio.device_id is not None:
-            print(f"\n✅ Using input device [{self._config.audio.device_id}]: {device_name}")
+            print(f"\n✅ Input:  [{self._config.audio.device_id}] {device_name}")
         else:
-            print(f"\n✅ Using DEFAULT input device: {device_name}")
+            print(f"\n✅ Input:  {device_name} (default)")
         
-        print(f"\n🔊 Output mode: {self._config.output_mode.value}")
+        output_desc = "Type into window" if self._config.output_mode.value == "type" else "Clipboard only"
+        print(f"✅ Output: {output_desc}")
 
     def _print_instructions(self) -> None:
         """Print usage instructions."""
-        print("\n" + "=" * 60)
-        print("📌 INSTRUCTIONS:")
-        print("   • Hold Left Option (⌥) to talk. Release to stop.")
-        print("   • Press Cmd+Esc to quit cleanly. Ctrl+C also works.")
-        print("   • Pause while holding → processes chunk & keeps listening.")
-        print(f"   • Text will be {'TYPED into the focused window' if self._config.output_mode.value == 'type' else 'copied to CLIPBOARD'}.")
+        print("\n📌 CONTROLS:")
+        print("   ⌥ Option     Hold to record, release to transcribe")
+        print("   ⌘ Cmd+Esc    Quit")
         print("=" * 60)
-        print("\n🟢 Ready! Hold Option key to start dictating...\n")
+        print("\n🟢 READY - Hold Option key to start dictating...")
+        print("-" * 60)
+        print("📜 LOG:")
+        print("-" * 60)
 
     def start_recording(self) -> None:
         """Start recording audio."""
@@ -179,10 +179,8 @@ class DictationApp:
         duration = self._audio.stop()
         
         if duration < self._config.min_hold_to_process_s:
-            print("⛔️ Ignored tap (too short)")
+            print("   (tap ignored)")
             return
-            
-        print("🛑 Stopped.")
 
     def _on_chunk_ready(self, audio: "NDArray[np.int16]") -> None:
         """Handle audio chunk ready for processing."""
@@ -228,8 +226,6 @@ class DictationApp:
         # Aggregate and output
         full_text = self._aggregator.append(text)
         
-        print(f"\n✅ Output: \"{text}\"")
-        
         try:
             # For clipboard, we want the full aggregated text
             # For typing, we only type the new text
@@ -238,14 +234,13 @@ class DictationApp:
             if self._config.output_mode == OutputMode.CLIPBOARD:
                 from dictate.output import ClipboardOutput
                 ClipboardOutput().output(full_text)
+                print(f"   📋 Copied: \"{text}\"")
             else:
                 self._output.output(text)
-            
-            print("---")
+                print(f"   ⌨️ Typed: \"{text}\"")
         except Exception as e:
             logger.error("Output error: %s", e)
             print(f"   ⚠️ Output error: {e}")
-            print("   📋 Text available in clipboard (Cmd+V)")
 
     def shutdown(self) -> None:
         """Shutdown the application gracefully."""

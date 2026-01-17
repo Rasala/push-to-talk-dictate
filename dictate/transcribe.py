@@ -7,6 +7,9 @@ import os
 import tempfile
 from typing import TYPE_CHECKING
 
+# Suppress huggingface/tqdm progress bars (must be set before imports)
+os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+
 import mlx_whisper
 from mlx_lm import generate, load
 from mlx_lm.sample_utils import make_sampler
@@ -92,9 +95,9 @@ class TextCleaner:
         if self._model is not None:
             return
 
-        logger.info("Loading LLM model: %s", self._config.model)
+        print(f"   Qwen: {self._config.model}...", end=" ", flush=True)
         self._model, self._tokenizer = load(self._config.model)
-        logger.info("LLM model loaded")
+        print("✓")
 
     def cleanup(self, text: str) -> str:
         """
@@ -238,7 +241,7 @@ class TranscriptionPipeline:
     def preload_models(self) -> None:
         """Pre-load all models for faster first transcription."""
         self._cleaner.load_model()
-        logger.info("Whisper model will load on first use: %s", self._whisper._config.model)
+        print(f"   Whisper: {self._whisper._config.model}")
 
     def process(self, audio: "NDArray[np.int16]") -> str | None:
         """
@@ -251,32 +254,30 @@ class TranscriptionPipeline:
             Cleaned transcribed text, or None if transcription failed.
         """
         duration_s = len(audio) / self._sample_rate
-        logger.info("Processing audio chunk (%.2fs)", duration_s)
+        print(f"⏳ Processing {duration_s:.1f}s of audio...")
 
         # Step 1: Transcribe with Whisper
-        logger.info("Running Whisper transcription...")
         import time
         t0 = time.time()
         raw_text = self._whisper.transcribe(audio, self._sample_rate).strip()
         t1 = time.time()
-        logger.info("Whisper done in %.2fs", t1 - t0)
 
         if not raw_text:
-            logger.warning("Whisper returned empty transcription")
+            print("   ⚠️ No speech detected")
             return None
 
-        logger.info("Raw transcription: \"%s\"", raw_text)
+        print(f"   📝 Heard: \"{raw_text}\" ({t1-t0:.1f}s)")
 
         # Step 2: Clean up with LLM
-        logger.info("Running LLM cleanup...")
         t2 = time.time()
         cleaned_text = self._cleaner.cleanup(raw_text).strip()
         t3 = time.time()
-        logger.info("LLM cleanup done in %.2fs", t3 - t2)
 
         if not cleaned_text:
-            logger.warning("LLM returned empty text")
+            print("   ⚠️ Cleanup failed")
             return None
 
-        logger.info("Cleaned text: \"%s\"", cleaned_text)
+        if cleaned_text != raw_text:
+            print(f"   ✨ Fixed: \"{cleaned_text}\" ({t3-t2:.1f}s)")
+
         return cleaned_text

@@ -9,7 +9,8 @@ from dictate.config import Config
 
 def setup_logging(verbose: bool) -> None:
     """Configure logging based on verbosity setting."""
-    level = logging.INFO if verbose else logging.WARNING
+    # Only show warnings and above unless explicitly verbose
+    level = logging.WARNING
     
     logging.basicConfig(
         level=level,
@@ -17,9 +18,9 @@ def setup_logging(verbose: bool) -> None:
         datefmt="%H:%M:%S",
     )
     
-    # Reduce noise from third-party libraries
-    logging.getLogger("urllib3").setLevel(logging.WARNING)
-    logging.getLogger("httpx").setLevel(logging.WARNING)
+    # Reduce noise from all third-party libraries
+    for name in ("urllib3", "httpx", "mlx", "transformers", "tokenizers", "sounddevice"):
+        logging.getLogger(name).setLevel(logging.ERROR)
 
 
 def main() -> int:

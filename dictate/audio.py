@@ -149,7 +149,6 @@ class AudioCapture:
             self._vad.reset(pre_roll_samples)
 
         self._start_stream()
-        logger.info("Recording started")
 
     def stop(self) -> float:
         """
@@ -166,7 +165,6 @@ class AudioCapture:
 
         self._stop_stream()
         self._finalize_chunk(force=True)
-        logger.info("Recording stopped (%.2fs)", duration)
         return duration
 
     def _start_stream(self) -> None:
@@ -225,8 +223,7 @@ class AudioCapture:
                 self._vad.last_speech_time = now
                 if not self._vad.in_speech:
                     self._vad.in_speech = True
-                    logger.info("Speech detected (RMS: %.4f)", rms)
-                    print(f"🔊 Speech detected (RMS: {rms:.4f})")
+                    print(f"🔊 Speech detected")
                     # Include pre-roll audio
                     if self._vad.pre_roll:
                         pre_audio = np.array(self._vad.pre_roll, dtype=np.float32)
@@ -257,8 +254,5 @@ class AudioCapture:
         if duration_s < 0.20 and not force:
             logger.debug("Skipping short chunk (%.2fs)", duration_s)
             return
-
-        if not force:
-            logger.info("Pause detected, processing chunk (%.2fs)", duration_s)
 
         self._on_chunk_ready(chunk_i16)
