@@ -132,3 +132,22 @@ dictate/
 ## 📝 License
 
 MIT
+
+### Dependency Licenses
+
+| Package | License |
+|---------|---------|
+| mlx, mlx-whisper, mlx-lm | MIT |
+| sounddevice | MIT |
+| scipy, numpy, psutil | BSD-3-Clause |
+| pyperclip | BSD |
+| pynput | LGPLv3 |
+
+### Model Licenses
+
+| Model | License |
+|-------|---------|
+| whisper-large-v3-mlx | MIT |
+| Qwen2-1.5B-Instruct-MLX | Apache-2.0 |
+
+All dependencies are compatible with the MIT license of this project.
