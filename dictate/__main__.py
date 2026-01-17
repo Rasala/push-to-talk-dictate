@@ -2,6 +2,16 @@
 
 import logging
 import sys
+from pathlib import Path
+
+# Load .env file if it exists (before importing config)
+try:
+    from dotenv import load_dotenv
+    env_path = Path.cwd() / ".env"
+    if env_path.exists():
+        load_dotenv(env_path)
+except ImportError:
+    pass  # python-dotenv not installed, use environment variables directly
 
 from dictate.app import DictationApp
 from dictate.config import Config

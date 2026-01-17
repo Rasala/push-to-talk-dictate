@@ -20,6 +20,13 @@ class OutputMode(str, Enum):
     CLIPBOARD = "clipboard"  # Copy to clipboard only
 
 
+class LLMModel(str, Enum):
+    """Available LLM models for text cleanup."""
+
+    PHI3 = "phi3"  # Microsoft Phi-3-Mini
+    QWEN = "qwen"  # Alibaba Qwen2-1.5B
+
+
 @dataclass
 class AudioConfig:
     """Audio capture configuration."""
@@ -69,15 +76,35 @@ class LLMConfig:
     """LLM text cleanup configuration."""
 
     enabled: bool = True
-    model: str = "Qwen/Qwen2-1.5B-Instruct-MLX"
-    system_prompt: str = (
-        "You are a text corrector. Return ONLY the corrected text. "
-        "NO preamble. NO 'Sure', 'Here is', or any introduction. "
-        "Just the text with fixed punctuation and capitalization."
-    )
+    model_choice: LLMModel = LLMModel.PHI3  # Default to Phi-3
     max_tokens: int = 300
     temperature: float = 0.0
 
+    @property
+    def model(self) -> str:
+        """Get the model path based on model_choice."""
+        if self.model_choice == LLMModel.PHI3:
+            return "mlx-community/Phi-3-mini-4k-instruct-4bit"
+        else:  # QWEN
+            return "Qwen/Qwen2-1.5B-Instruct-MLX"
+
+    @property
+    def system_prompt(self) -> str:
+        """Get the system prompt based on model_choice."""
+        if self.model_choice == LLMModel.PHI3:
+            return (
+                "You are a speech-to-text post-processor. Your ONLY job is to fix "
+                "punctuation, capitalization, and obvious transcription errors. "
+                "Output ONLY the corrected text. Do NOT answer questions. "
+                "Do NOT add commentary. Do NOT explain. Do NOT converse. "
+                "Just output the cleaned-up version of the input text, nothing else."
+            )
+        else:  # QWEN
+            return (
+                "You are a text corrector. Return ONLY the corrected text. "
+                "NO preamble. NO 'Sure', 'Here is', or any introduction. "
+                "Just the text with fixed punctuation and capitalization."
+            )
 
 @dataclass
 class KeybindConfig:
@@ -132,4 +159,10 @@ class Config:
         if llm_enabled := os.environ.get("DICTATE_LLM_CLEANUP"):
             config.llm.enabled = llm_enabled.lower() in ("1", "true", "yes")
 
+        # LLM model choice
+        if llm_model := os.environ.get("DICTATE_LLM_MODEL"):
+            try:
+                config.llm.model_choice = LLMModel(llm_model.lower())
+            except ValueError:
+                pass  # Keep default if invalid value
         return config

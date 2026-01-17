@@ -145,6 +145,18 @@ class TextCleaner:
 
     def _postprocess(self, text: str) -> str:
         """Post-process generated text to handle LLM quirks."""
+        # Strip special tokens from various models
+        special_tokens = [
+            "<|end|>",
+            "<|endoftext|>",
+            "<|im_end|>",
+            "<|eot_id|>",
+            "</s>",
+        ]
+        for token in special_tokens:
+            text = text.replace(token, "")
+        text = text.strip()
+        
         # Strip common LLM preambles (case-insensitive)
         preambles = [
             # "Sure" variants
