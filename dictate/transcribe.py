@@ -112,10 +112,10 @@ class TextCleaner:
         if self._model is None or self._tokenizer is None:
             self.load_model()
 
-        # Build chat-formatted prompt with explicit formatting instruction
+        # Build chat-formatted prompt for AI prompt formatting
         messages = [
             {"role": "system", "content": self._config.system_prompt},
-            {"role": "user", "content": f"Reformat this text:\n{text}"},
+            {"role": "user", "content": f"Format this voice transcription into a clear prompt:\n\n{text}"},
         ]
         prompt = self._tokenizer.apply_chat_template(
             messages,
