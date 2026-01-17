@@ -76,7 +76,7 @@ class LLMConfig:
     """LLM text cleanup configuration."""
 
     enabled: bool = True
-    model_choice: LLMModel = LLMModel.PHI3  # Default to Phi-3
+    model_choice: LLMModel = LLMModel.QWEN  # Qwen2.5 has best multilingual support
     max_tokens: int = 300
     temperature: float = 0.0
 
@@ -86,7 +86,7 @@ class LLMConfig:
         if self.model_choice == LLMModel.PHI3:
             return "mlx-community/Phi-3-mini-4k-instruct-4bit"
         else:  # QWEN
-            return "Qwen/Qwen2-1.5B-Instruct-MLX"
+            return "mlx-community/Qwen2.5-3B-Instruct-4bit"
 
     @property
     def system_prompt(self) -> str:
