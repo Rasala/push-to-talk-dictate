@@ -26,37 +26,49 @@ logger = logging.getLogger(__name__)
 
 
 class WhisperTranscriber:
-    """Transcribes audio to text using Whisper."""
-
     def __init__(self, config: "WhisperConfig") -> None:
         self._config = config
         self._model_loaded = False
+
+    def load_model(self) -> None:
+        if self._model_loaded:
+            return
+        
+        print(f"   Whisper: {self._config.model}...", end=" ", flush=True)
+        
+        import numpy as np
+        silent_audio = np.zeros(16000, dtype=np.int16)
+        wav_path = self._save_temp_wav(silent_audio, 16000)
+        
+        try:
+            mlx_whisper.transcribe(
+                wav_path,
+                path_or_hf_repo=self._config.model,
+                language=self._config.language,
+            )
+            self._model_loaded = True
+            print("✓")
+        finally:
+            self._cleanup_temp_file(wav_path)
 
     def transcribe(
         self,
         audio: "NDArray[np.int16]",
         sample_rate: int,
+        language: str | None = None,
     ) -> str:
-        """
-        Transcribe audio to text.
-        
-        Args:
-            audio: Audio data as 16-bit integer samples.
-            sample_rate: Sample rate of the audio.
-            
-        Returns:
-            Transcribed text.
-        """
         wav_path = self._save_temp_wav(audio, sample_rate)
         try:
             if not self._model_loaded:
                 logger.info("Loading Whisper model: %s", self._config.model)
                 self._model_loaded = True
 
+            transcribe_language = language if language is not None else self._config.language
+
             result = mlx_whisper.transcribe(
                 wav_path,
                 path_or_hf_repo=self._config.model,
-                language=self._config.language,
+                language=transcribe_language,
             )
             text = result.get("text", "")
             return str(text) if isinstance(text, str) else ""
@@ -68,14 +80,12 @@ class WhisperTranscriber:
         audio: "NDArray[np.int16]",
         sample_rate: int,
     ) -> str:
-        """Save audio to a temporary WAV file."""
         fd, path = tempfile.mkstemp(suffix=".wav", prefix="dictate_")
         os.close(fd)
         wav_write(path, sample_rate, audio)
         return path
 
     def _cleanup_temp_file(self, path: str) -> None:
-        """Remove temporary file."""
         try:
             os.remove(path)
         except OSError as e:
@@ -83,15 +93,12 @@ class WhisperTranscriber:
 
 
 class TextCleaner:
-    """Cleans up transcribed text using an LLM."""
-
     def __init__(self, config: "LLMConfig") -> None:
         self._config = config
         self._model: "Module | None" = None
         self._tokenizer = None
 
     def load_model(self) -> None:
-        """Load the LLM model."""
         if self._model is not None:
             return
 
@@ -99,25 +106,17 @@ class TextCleaner:
         self._model, self._tokenizer = load(self._config.model)
         print("✓")
 
-    def cleanup(self, text: str) -> str:
-        """
-        Clean up transcribed text.
-        
-        Args:
-            text: Raw transcribed text.
-            
-        Returns:
-            Cleaned text with fixed grammar and punctuation.
-        """
+    def cleanup(self, text: str, output_language: str | None = None) -> str:
         if not self._config.enabled:
             return text
 
         if self._model is None or self._tokenizer is None:
             self.load_model()
 
-        # Build chat-formatted prompt for AI prompt formatting
+        system_prompt = self._config.get_system_prompt(output_language)
+
         messages = [
-            {"role": "system", "content": self._config.system_prompt},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": text},
         ]
         prompt = self._tokenizer.apply_chat_template(
@@ -126,11 +125,9 @@ class TextCleaner:
             add_generation_prompt=True,
         )
 
-        # Limit tokens based on input length to prevent repetition
         input_words = len(text.split())
         max_tokens = min(self._config.max_tokens, max(50, input_words * 3))
 
-        # Use greedy sampling for deterministic output
         sampler = make_sampler(temp=self._config.temperature)
         
         result = generate(
@@ -140,12 +137,12 @@ class TextCleaner:
             max_tokens=max_tokens,
             sampler=sampler,
         )
+        
+        logger.debug("LLM raw result: %r", result)
 
         return self._postprocess(result.strip())
 
     def _postprocess(self, text: str) -> str:
-        """Post-process generated text to handle LLM quirks."""
-        # Strip special tokens from various models
         special_tokens = [
             "<|end|>",
             "<|endoftext|>",
@@ -156,8 +153,8 @@ class TextCleaner:
         for token in special_tokens:
             text = text.replace(token, "")
         text = text.strip()
+        text_lower = text.lower()
         
-        # Strip common LLM preambles (case-insensitive)
         preambles = [
             # "Sure" variants
             "Sure, here's the corrected text:",
@@ -206,26 +203,22 @@ class TextCleaner:
             "Answer:",
         ]
         
-        text_lower = text.lower()
         for preamble in preambles:
             if text_lower.startswith(preamble.lower()):
                 text = text[len(preamble):].strip()
-                text_lower = text.lower()  # Update for next iteration
+                text_lower = text.lower()
         
-        # Strip surrounding quotes if present
         if len(text) >= 2 and text.startswith('"') and text.endswith('"'):
             text = text[1:-1]
         if len(text) >= 2 and text.startswith("'") and text.endswith("'"):
             text = text[1:-1]
         
-        # Remove leading newlines
         text = text.lstrip('\n')
         
         lines = text.split("\n")
         if not lines:
             return text
 
-        # Detect repetition: if lines repeat, return just the first
         first_line = lines[0].strip()
         if len(lines) > 1 and lines[1].strip() == first_line:
             logger.warning("Detected repetition in LLM output, truncating")
@@ -235,8 +228,6 @@ class TextCleaner:
 
 
 class TranscriptionPipeline:
-    """Complete transcription pipeline: audio → text → cleaned text."""
-
     def __init__(
         self,
         whisper_config: "WhisperConfig",
@@ -247,31 +238,26 @@ class TranscriptionPipeline:
         self._sample_rate = 16_000
 
     def set_sample_rate(self, sample_rate: int) -> None:
-        """Set the audio sample rate."""
         self._sample_rate = sample_rate
 
     def preload_models(self) -> None:
-        """Pre-load all models for faster first transcription."""
+        self._whisper.load_model()
         self._cleaner.load_model()
-        print(f"   Whisper: {self._whisper._config.model}")
 
-    def process(self, audio: "NDArray[np.int16]") -> str | None:
-        """
-        Process audio through the full transcription pipeline.
-        
-        Args:
-            audio: Audio data as 16-bit integer samples.
-            
-        Returns:
-            Cleaned transcribed text, or None if transcription failed.
-        """
+    def process(
+        self,
+        audio: "NDArray[np.int16]",
+        input_language: str | None = None,
+        output_language: str | None = None,
+    ) -> str | None:
         duration_s = len(audio) / self._sample_rate
         print(f"⏳ Processing {duration_s:.1f}s of audio...")
 
-        # Step 1: Transcribe with Whisper
         import time
         t0 = time.time()
-        raw_text = self._whisper.transcribe(audio, self._sample_rate).strip()
+        raw_text = self._whisper.transcribe(
+            audio, self._sample_rate, language=input_language
+        ).strip()
         t1 = time.time()
 
         if not raw_text:
@@ -280,9 +266,8 @@ class TranscriptionPipeline:
 
         print(f"   📝 Heard: \"{raw_text}\" ({t1-t0:.1f}s)")
 
-        # Step 2: Clean up with LLM
         t2 = time.time()
-        cleaned_text = self._cleaner.cleanup(raw_text).strip()
+        cleaned_text = self._cleaner.cleanup(raw_text, output_language=output_language).strip()
         t3 = time.time()
 
         if not cleaned_text:
@@ -291,5 +276,7 @@ class TranscriptionPipeline:
 
         if cleaned_text != raw_text:
             print(f"   ✨ Fixed: \"{cleaned_text}\" ({t3-t2:.1f}s)")
+        else:
+            print(f"   ✓ No changes needed ({t3-t2:.1f}s)")
 
         return cleaned_text

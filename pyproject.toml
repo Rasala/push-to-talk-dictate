@@ -78,3 +78,10 @@ python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+filterwarnings = [
+    # SWIG deprecation warnings from sounddevice/scipy - not actionable
+    "ignore:builtin type Swig.*:DeprecationWarning",
+]

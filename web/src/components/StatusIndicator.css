@@ -1,0 +1,51 @@
+.status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: 2rem;
+  font-size: 0.9rem;
+  background: var(--bg-secondary);
+  transition: all 0.3s ease;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  transition: all 0.3s ease;
+}
+
+.status-idle .status-dot {
+  background: var(--text-secondary);
+}
+
+.status-recording .status-dot {
+  background: #ef4444;
+  animation: pulse 1s infinite;
+}
+
+.status-processing .status-dot {
+  background: #f59e0b;
+  animation: pulse 0.5s infinite;
+}
+
+.status-success .status-dot {
+  background: #10b981;
+}
+
+.status-error .status-dot {
+  background: #ef4444;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(1.2);
+  }
+}

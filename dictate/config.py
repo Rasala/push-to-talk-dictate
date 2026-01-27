@@ -14,38 +14,29 @@ from pynput import keyboard
 
 
 class OutputMode(str, Enum):
-    """Output mode for transcribed text."""
-
-    TYPE = "type"  # Type directly into focused window
-    CLIPBOARD = "clipboard"  # Copy to clipboard only
+    TYPE = "type"
+    CLIPBOARD = "clipboard"
 
 
 class LLMModel(str, Enum):
-    """Available LLM models for text cleanup."""
-
-    PHI3 = "phi3"  # Microsoft Phi-3-Mini
-    QWEN = "qwen"  # Alibaba Qwen2-1.5B
+    PHI3 = "phi3"
+    QWEN = "qwen"
 
 
 @dataclass
 class AudioConfig:
-    """Audio capture configuration."""
-
     sample_rate: int = 16_000
     channels: int = 1
     block_ms: int = 30
-    device_id: int | None = None  # None = system default
+    device_id: int | None = None
 
     @property
     def block_size(self) -> int:
-        """Calculate block size in samples."""
         return int(self.sample_rate * (self.block_ms / 1000.0))
 
 
 @dataclass
 class VADConfig:
-    """Voice Activity Detection configuration."""
-
     rms_threshold: float = 0.012
     silence_timeout_s: float = 2.0
     pre_roll_s: float = 0.25
@@ -54,8 +45,6 @@ class VADConfig:
 
 @dataclass
 class ToneConfig:
-    """Audio feedback tone configuration."""
-
     enabled: bool = True
     start_hz: int = 880
     stop_hz: int = 440
@@ -65,35 +54,58 @@ class ToneConfig:
 
 @dataclass
 class WhisperConfig:
-    """Whisper transcription configuration."""
-
     model: str = "mlx-community/whisper-large-v3-mlx"
-    language: str = "en"
+    language: str | None = None
+
+
+# Language name mapping for LLM prompts
+LANGUAGE_NAMES = {
+    "en": "English",
+    "pl": "Polish",
+    "de": "German",
+    "fr": "French",
+    "es": "Spanish",
+    "it": "Italian",
+    "pt": "Portuguese",
+    "nl": "Dutch",
+    "ja": "Japanese",
+    "zh": "Chinese",
+    "ko": "Korean",
+    "ru": "Russian",
+}
 
 
 @dataclass
 class LLMConfig:
-    """LLM text cleanup configuration."""
-
     enabled: bool = True
-    model_choice: LLMModel = LLMModel.QWEN  # Qwen2.5 has best multilingual support
+    model_choice: LLMModel = LLMModel.QWEN
     max_tokens: int = 300
     temperature: float = 0.0
+    output_language: str | None = None
 
     @property
     def model(self) -> str:
-        """Get the model path based on model_choice."""
         if self.model_choice == LLMModel.PHI3:
             return "mlx-community/Phi-3-mini-4k-instruct-4bit"
         else:  # QWEN
             return "mlx-community/Qwen2.5-3B-Instruct-4bit"
 
-    @property
-    def system_prompt(self) -> str:
-        """Get the system prompt based on model_choice."""
+    def get_system_prompt(self, output_language: str | None = None) -> str:
+        target_lang = output_language if output_language is not None else self.output_language
+        
+        if target_lang:
+            lang_name = LANGUAGE_NAMES.get(target_lang, target_lang)
+            translation_instruction = (
+                f"TRANSLATE the input text to {lang_name}. "
+                f"Output the translation in {lang_name} language only. "
+            )
+        else:
+            translation_instruction = ""
+
         if self.model_choice == LLMModel.PHI3:
             return (
-                "You are a speech-to-text post-processor. Your ONLY job is to fix "
+                f"{translation_instruction}"
+                "You are a speech-to-text post-processor. Your job is to fix "
                 "punctuation, capitalization, and obvious transcription errors. "
                 "Output ONLY the corrected text. Do NOT answer questions. "
                 "Do NOT add commentary. Do NOT explain. Do NOT converse. "
@@ -101,15 +113,18 @@ class LLMConfig:
             )
         else:  # QWEN
             return (
-                "You are a text corrector. Return ONLY the corrected text. "
+                f"{translation_instruction}"
+                "You are a text processor. Return ONLY the processed text. "
                 "NO preamble. NO 'Sure', 'Here is', or any introduction. "
-                "Just the text with fixed punctuation and capitalization."
+                "Fix punctuation and capitalization."
             )
+
+    @property
+    def system_prompt(self) -> str:
+        return self.get_system_prompt()
 
 @dataclass
 class KeybindConfig:
-    """Keyboard shortcut configuration."""
-
     ptt_key: "Key" = field(default_factory=lambda: keyboard.Key.alt_l)
     quit_key: "Key" = field(default_factory=lambda: keyboard.Key.esc)
     quit_modifier: "Key" = field(default_factory=lambda: keyboard.Key.cmd)
@@ -117,41 +132,32 @@ class KeybindConfig:
 
 @dataclass
 class Config:
-    """Main application configuration."""
-
-    # Sub-configurations
     audio: AudioConfig = field(default_factory=AudioConfig)
     vad: VADConfig = field(default_factory=VADConfig)
     tones: ToneConfig = field(default_factory=ToneConfig)
     whisper: WhisperConfig = field(default_factory=WhisperConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
     keybinds: KeybindConfig = field(default_factory=KeybindConfig)
-
-    # Output settings
     output_mode: OutputMode = OutputMode.TYPE
     min_hold_to_process_s: float = 0.25
-
-    # Logging
     verbose: bool = True
 
     @classmethod
     def from_env(cls) -> "Config":
-        """Create configuration from environment variables."""
         config = cls()
 
-        # Audio device
         if device := os.environ.get("DICTATE_AUDIO_DEVICE"):
             config.audio.device_id = int(device)
 
-        # Output mode
         if mode := os.environ.get("DICTATE_OUTPUT_MODE"):
             config.output_mode = OutputMode(mode.lower())
 
-        # Whisper language
-        if lang := os.environ.get("DICTATE_LANGUAGE"):
-            config.whisper.language = lang
+        if lang := os.environ.get("DICTATE_INPUT_LANGUAGE"):
+            config.whisper.language = None if lang.lower() == "auto" else lang
 
-        # Verbose logging
+        if lang := os.environ.get("DICTATE_OUTPUT_LANGUAGE"):
+            config.llm.output_language = None if lang.lower() == "auto" else lang
+
         if verbose := os.environ.get("DICTATE_VERBOSE"):
             config.verbose = verbose.lower() in ("1", "true", "yes")
 

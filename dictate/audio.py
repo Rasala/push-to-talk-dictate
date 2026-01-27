@@ -1,5 +1,3 @@
-"""Audio capture, device enumeration, and voice activity detection."""
-
 from __future__ import annotations
 
 import logging
@@ -19,11 +17,19 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_SAMPLE_RATE = 16_000
+DEFAULT_PRE_ROLL_SAMPLES = 4000
+FADE_DURATION_SECONDS = 0.008
+MIN_CHUNK_DURATION_SECONDS = 0.20
+INT16_MAX = 32767.0
+RMS_EPSILON = 1e-12
+AUDIO_CLIP_MIN = -1.0
+AUDIO_CLIP_MAX = 1.0
+FIRST_CHANNEL_INDEX = 0
+
 
 @dataclass
 class AudioDevice:
-    """Represents an audio input device."""
-
     index: int
     name: str
     is_default: bool = False
@@ -34,9 +40,8 @@ class AudioDevice:
 
 
 def list_input_devices() -> list[AudioDevice]:
-    """List all available audio input devices."""
     devices = sd.query_devices()
-    default_input = sd.default.device[0]
+    default_input = sd.default.device[FIRST_CHANNEL_INDEX]
     
     input_devices = []
     for i, dev in enumerate(devices):
@@ -52,11 +57,10 @@ def list_input_devices() -> list[AudioDevice]:
 
 
 def get_device_name(device_id: int | None) -> str:
-    """Get the name of a device by ID, or the default device name."""
     if device_id is not None:
         info = sd.query_devices(device_id)
     else:
-        default_id = sd.default.device[0]
+        default_id = sd.default.device[FIRST_CHANNEL_INDEX]
         info = sd.query_devices(default_id)
     return info["name"]  # type: ignore[index,return-value]
 
@@ -64,9 +68,8 @@ def get_device_name(device_id: int | None) -> str:
 def play_tone(
     config: "ToneConfig",
     frequency_hz: int,
-    sample_rate: int = 16_000,
+    sample_rate: int = DEFAULT_SAMPLE_RATE,
 ) -> None:
-    """Play an audio feedback tone."""
     if not config.enabled:
         return
 
@@ -74,8 +77,7 @@ def play_tone(
     t = np.arange(n_samples, dtype=np.float32) / sample_rate
     tone = np.sin(2.0 * np.pi * frequency_hz * t) * config.volume
 
-    # Apply fade in/out to avoid clicks
-    fade_samples = max(1, int(0.008 * sample_rate))
+    fade_samples = max(1, int(FADE_DURATION_SECONDS * sample_rate))
     if fade_samples * 2 < n_samples:
         window = np.ones(n_samples, dtype=np.float32)
         window[:fade_samples] = np.linspace(0, 1, fade_samples, dtype=np.float32)
@@ -87,15 +89,12 @@ def play_tone(
 
 @dataclass
 class VADState:
-    """Voice Activity Detection state."""
-
     in_speech: bool = False
     last_speech_time: float = 0.0
-    pre_roll: deque = field(default_factory=lambda: deque(maxlen=4000))
+    pre_roll: deque = field(default_factory=lambda: deque(maxlen=DEFAULT_PRE_ROLL_SAMPLES))
     current_chunk: list["NDArray[np.float32]"] = field(default_factory=list)
 
     def reset(self, pre_roll_samples: int) -> None:
-        """Reset VAD state for new recording session."""
         self.in_speech = False
         self.last_speech_time = 0.0
         self.pre_roll = deque(maxlen=pre_roll_samples)
@@ -103,8 +102,6 @@ class VADState:
 
 
 class AudioCapture:
-    """Handles audio capture and voice activity detection."""
-
     def __init__(
         self,
         audio_config: "AudioConfig",
@@ -125,19 +122,16 @@ class AudioCapture:
 
     @property
     def is_recording(self) -> bool:
-        """Check if currently recording."""
         with self._lock:
             return self._recording
 
     @property
     def recording_duration(self) -> float:
-        """Get current recording duration in seconds."""
         if not self._recording:
             return 0.0
         return time.time() - self._recording_started_at
 
     def start(self) -> None:
-        """Start audio capture."""
         with self._lock:
             if self._recording:
                 return
@@ -151,12 +145,6 @@ class AudioCapture:
         self._start_stream()
 
     def stop(self) -> float:
-        """
-        Stop audio capture.
-        
-        Returns:
-            Duration of the recording in seconds.
-        """
         with self._lock:
             if not self._recording:
                 return 0.0
@@ -168,7 +156,6 @@ class AudioCapture:
         return duration
 
     def _start_stream(self) -> None:
-        """Initialize and start the audio input stream."""
         self._stream = sd.InputStream(
             samplerate=self._audio_config.sample_rate,
             channels=self._audio_config.channels,
@@ -180,7 +167,6 @@ class AudioCapture:
         self._stream.start()
 
     def _stop_stream(self) -> None:
-        """Stop and close the audio input stream."""
         if self._stream:
             try:
                 self._stream.stop()
@@ -197,26 +183,22 @@ class AudioCapture:
         time_info: dict,
         status: sd.CallbackFlags,
     ) -> None:
-        """Process incoming audio data."""
         if status:
             logger.warning("Audio callback status: %s", status)
 
-        audio = indata[:, 0].astype(np.float32, copy=True)
+        audio = indata[:, FIRST_CHANNEL_INDEX].astype(np.float32, copy=True)
         self._process_audio_block(audio)
 
     def _process_audio_block(self, audio: "NDArray[np.float32]") -> None:
-        """Process a block of audio for VAD."""
         now = time.time()
 
         with self._lock:
             if not self._recording:
                 return
 
-            # Update pre-roll buffer
             self._vad.pre_roll.extend(audio.tolist())
 
-            # Compute RMS for voice activity detection
-            rms = float(np.sqrt(np.mean(audio * audio) + 1e-12))
+            rms = float(np.sqrt(np.mean(audio * audio) + RMS_EPSILON))
             is_speech = rms >= self._vad_config.rms_threshold
 
             if is_speech:
@@ -224,7 +206,6 @@ class AudioCapture:
                 if not self._vad.in_speech:
                     self._vad.in_speech = True
                     print(f"🔊 Speech detected")
-                    # Include pre-roll audio
                     if self._vad.pre_roll:
                         pre_audio = np.array(self._vad.pre_roll, dtype=np.float32)
                         self._vad.current_chunk.append(pre_audio)
@@ -238,20 +219,17 @@ class AudioCapture:
                         self._vad.in_speech = False
 
     def _finalize_chunk(self, force: bool) -> None:
-        """Finalize and emit the current audio chunk."""
         if not self._vad.current_chunk:
             return
 
-        # Concatenate all audio blocks
         chunk = np.concatenate(self._vad.current_chunk).astype(np.float32)
-        chunk = np.clip(chunk, -1.0, 1.0)
-        chunk_i16 = (chunk * 32767.0).astype(np.int16)
+        chunk = np.clip(chunk, AUDIO_CLIP_MIN, AUDIO_CLIP_MAX)
+        chunk_i16 = (chunk * INT16_MAX).astype(np.int16)
 
         duration_s = len(chunk_i16) / self._audio_config.sample_rate
         self._vad.current_chunk = []
 
-        # Skip very short chunks unless forced
-        if duration_s < 0.20 and not force:
+        if duration_s < MIN_CHUNK_DURATION_SECONDS and not force:
             logger.debug("Skipping short chunk (%.2fs)", duration_s)
             return
 
